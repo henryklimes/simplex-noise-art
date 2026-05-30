@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Simplex Noise Art — Generative Flow-Field Art Studio</title>
+<meta name="description" content="An interactive generative-art studio. Thousands of particles flow through an animated noise field to paint organic, ever-changing artwork in your browser." />
+<style>
+  :root {
+    --bg: #07080d;
+    --panel: rgba(18, 20, 30, 0.55);
+    --panel-border: rgba(255, 255, 255, 0.10);
+    --text: #eef1f8;
+    --muted: #9aa3b8;
+    --accent: #7c9cff;
+    --accent-2: #c084fc;
+    --radius: 16px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #stage { position: fixed; inset: 0; display: block; }
+
+  /* ---------- Header ---------- */
+  .brand {
+    position: fixed;
+    top: 22px;
+    left: 26px;
+    z-index: 5;
+    pointer-events: none;
+    user-select: none;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(100deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand p {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.3px;
+  }
+
+  /* ---------- Control panel ---------- */
+  .panel {
+    position: fixed;
+    top: 22px;
+    right: 22px;
+    z-index: 10;
+    width: 290px;
+    max-height: calc(100vh - 44px);
+    overflow-y: auto;
+    padding: 18px;
+    border-radius: var(--radius);
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s;
+  }
+  .panel.collapsed { transform: translateX(calc(100% + 30px)); opacity: 0; }
+
+  .panel::-webkit-scrollbar { width: 8px; }
+  .panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+
+  .section { margin-bottom: 16px; }
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+
+  .control { margin-bottom: 13px; }
+  .control label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .control label .val { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.14);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 0 0 4px rgba(124, 156, 255, 0.16);
+    transition: box-shadow 0.15s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 7px rgba(124, 156, 255, 0.22); }
+  input[type="range"]::-moz-range-thumb {
+    width: 15px; height: 15px; border: none; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  }
+
+  /* Palette swatches */
+  .palettes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .swatch {
+    height: 34px;
+    border-radius: 9px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.12s, border-color 0.12s;
+  }
+  .swatch:hover { transform: translateY(-2px); }
+  .swatch.active { border-color: #fff; }
+
+  /* Buttons */
+  .btn-row { display: flex; gap: 8px; }
+  button.btn {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  button.btn:hover { background: rgba(255, 255, 255, 0.12); }
+  button.btn:active { transform: scale(0.97); }
+  button.btn.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border: none;
+    color: #0b0c14;
+  }
+  button.btn.primary:hover { filter: brightness(1.08); }
+
+  /* Segmented toggle */
+  .seg { display: flex; background: rgba(255,255,255,0.06); border-radius: 10px; padding: 3px; gap: 3px; }
+  .seg button {
+    flex: 1; padding: 7px 6px; font-size: 12px; border: none; border-radius: 8px;
+    background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s;
+  }
+  .seg button.active { background: rgba(255,255,255,0.14); color: var(--text); }
+
+  /* Floating toggle button (when panel collapsed) */
+  .fab {
+    position: fixed;
+    top: 22px; right: 22px;
+    z-index: 11;
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    color: var(--text);
+    cursor: pointer;
+    display: none;
+    align-items: center; justify-content: center;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+  }
+  .fab.show { display: flex; }
+  .fab svg { width: 20px; height: 20px; }
+
+  .panel-collapse {
+    position: absolute; top: 14px; right: 14px;
+    width: 26px; height: 26px; border-radius: 7px;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,0.05); color: var(--muted);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; line-height: 1;
+  }
+  .panel-collapse:hover { color: var(--text); }
+
+  .hint {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    font-size: 12px;
+    color: var(--muted);
+    background: rgba(10, 11, 18, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 7px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--panel-border);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s;
+    white-space: nowrap;
+  }
+  .hint.show { opacity: 1; }
+
+  .toast {
+    position: fixed;
+    bottom: 60px; left: 50%;
+    transform: translate(-50%, 10px);
+    z-index: 20;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0b0c14;
+    font-size: 13px; font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 560px) {
+    .panel { width: calc(100vw - 32px); right: 16px; top: 70px; }
+    .brand { top: 16px; left: 18px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="brand">
+    <h1>Simplex Noise Art</h1>
+    <p>Generative flow-field art studio</p>
+  </div>
+
+  <button class="fab" id="fab" title="Show controls" aria-label="Show controls">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
+    </svg>
+  </button>
+
+  <div class="panel" id="panel">
+    <button class="panel-collapse" id="collapse" title="Hide panel">&times;</button>
+
+    <div class="section">
+      <p class="section-title">Palette</p>
+      <div class="palettes" id="palettes"></div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Field</p>
+      <div class="control">
+        <label>Particles <span class="val" id="countVal"></span></label>
+        <input type="range" id="count" min="200" max="6000" step="100" />
+      </div>
+      <div class="control">
+        <label>Flow scale <span class="val" id="scaleVal"></span></label>
+        <input type="range" id="scale" min="40" max="600" step="5" />
+      </div>
+      <div class="control">
+        <label>Speed <span class="val" id="speedVal"></span></label>
+        <input type="range" id="speed" min="2" max="60" step="1" />
+      </div>
+      <div class="control">
+        <label>Curl <span class="val" id="curlVal"></span></label>
+        <input type="range" id="curl" min="0" max="100" step="1" />
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Look</p>
+      <div class="control">
+        <label>Line width <span class="val" id="widthVal"></span></label>
+        <input type="range" id="width" min="1" max="40" step="1" />
+      </div>
+      <div class="control">
+        <label>Trail fade <span class="val" id="fadeVal"></span></label>
+        <input type="range" id="fade" min="0" max="100" step="1" />
+      </div>
+      <div class="control">
+        <label>Blend</label>
+        <div class="seg" id="blend">
+          <button data-blend="lighter" class="active">Glow</button>
+          <button data-blend="source-over">Ink</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Mouse</p>
+      <div class="seg" id="mouseMode">
+        <button data-mode="none" class="active">Off</button>
+        <button data-mode="attract">Attract</button>
+        <button data-mode="repel">Repel</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="btn-row" style="margin-bottom: 8px;">
+        <button class="btn" id="pause">Pause</button>
+        <button class="btn" id="clear">Clear</button>
+      </div>
+      <div class="btn-row" style="margin-bottom: 8px;">
+        <button class="btn" id="randomize">Randomize</button>
+        <button class="btn" id="fullscreen">Fullscreen</button>
+      </div>
+      <button class="btn primary" id="save" style="width: 100%;">Save as PNG</button>
+    </div>
+  </div>
+
+  <div class="hint" id="hint"></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Simplex Noise Art — interactive generative flow-field studio
+   Single-file, zero-dependency. Custom seeded simplex noise.
+   ============================================================ */
+
+/* ---------- Seeded RNG (mulberry32) ---------- */
+function makeRNG(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ---------- 2D Simplex noise (seeded permutation table) ---------- */
+class SimplexNoise {
+  constructor(rng) {
+    this.perm = new Uint8Array(512);
+    this.permMod12 = new Uint8Array(512);
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    for (let i = 0; i < 512; i++) {
+      this.perm[i] = p[i & 255];
+      this.permMod12[i] = this.perm[i] % 12;
+    }
+    this.grad3 = new Float32Array([
+      1, 1, -1, 1, 1, -1, -1, -1,
+      1, 0, -1, 0, 1, 0, -1, 0,
+      0, 1, 0, -1, 0, 1, 0, -1,
+    ]);
+  }
+  noise2D(xin, yin) {
+    const F2 = 0.5 * (Math.sqrt(3) - 1);
+    const G2 = (3 - Math.sqrt(3)) / 6;
+    const perm = this.perm, permMod12 = this.permMod12, grad3 = this.grad3;
+    let n0 = 0, n1 = 0, n2 = 0;
+    const s = (xin + yin) * F2;
+    const i = Math.floor(xin + s), j = Math.floor(yin + s);
+    const t = (i + j) * G2;
+    const x0 = xin - (i - t), y0 = yin - (j - t);
+    let i1, j1;
+    if (x0 > y0) { i1 = 1; j1 = 0; } else { i1 = 0; j1 = 1; }
+    const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+    const ii = i & 255, jj = j & 255;
+    let t0 = 0.5 - x0 * x0 - y0 * y0;
+    if (t0 >= 0) {
+      const gi0 = permMod12[ii + perm[jj]] * 2;
+      t0 *= t0; n0 = t0 * t0 * (grad3[gi0] * x0 + grad3[gi0 + 1] * y0);
+    }
+    let t1 = 0.5 - x1 * x1 - y1 * y1;
+    if (t1 >= 0) {
+      const gi1 = permMod12[ii + i1 + perm[jj + j1]] * 2;
+      t1 *= t1; n1 = t1 * t1 * (grad3[gi1] * x1 + grad3[gi1 + 1] * y1);
+    }
+    let t2 = 0.5 - x2 * x2 - y2 * y2;
+    if (t2 >= 0) {
+      const gi2 = permMod12[ii + 1 + perm[jj + 1]] * 2;
+      t2 *= t2; n2 = t2 * t2 * (grad3[gi2] * x2 + grad3[gi2 + 1] * y2);
+    }
+    return 70 * (n0 + n1 + n2);
+  }
+}
+
+/* ---------- Color palettes ---------- */
+const PALETTES = [
+  { name: "Aurora",   bg: "#05060c", colors: ["#5eead4", "#7c9cff", "#c084fc", "#34d399"] },
+  { name: "Ember",    bg: "#0c0604", colors: ["#fb7185", "#fbbf24", "#f97316", "#fde68a"] },
+  { name: "Neon",     bg: "#06030a", colors: ["#22d3ee", "#a855f7", "#ec4899", "#38bdf8"] },
+  { name: "Mono",     bg: "#0a0a0a", colors: ["#ffffff", "#cccccc", "#888888", "#e5e5e5"] },
+  { name: "Forest",   bg: "#04080a", colors: ["#4ade80", "#a3e635", "#16a34a", "#bef264"] },
+  { name: "Sunset",   bg: "#0a0410", colors: ["#f43f5e", "#fb923c", "#facc15", "#e879f9"] },
+];
+
+/* ---------- Globals ---------- */
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d", { alpha: false });
+let DPR = Math.min(window.devicePixelRatio || 1, 2);
+let W = 0, H = 0;
+
+const state = {
+  count: 1600,
+  scale: 220,
+  speed: 22,
+  curl: 35,
+  width: 6,
+  fade: 4,
+  blend: "lighter",
+  mouseMode: "none",
+  palette: 0,
+  paused: false,
+  seed: (Math.random() * 1e9) | 0,
+  zoff: 0,
+};
+
+let noise = new SimplexNoise(makeRNG(state.seed));
+let particles = [];
+const mouse = { x: 0, y: 0, active: false };
+
+/* ---------- Resize ---------- */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  paintBackground();
+}
+
+function paintBackground() {
+  ctx.fillStyle = PALETTES[state.palette].bg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- Particles ---------- */
+function makeParticle() {
+  const pal = PALETTES[state.palette].colors;
+  return {
+    x: Math.random() * W,
+    y: Math.random() * H,
+    px: 0, py: 0,
+    life: Math.random() * 400 + 100,
+    color: pal[(Math.random() * pal.length) | 0],
+  };
+}
+
+function rebuildParticles() {
+  particles = new Array(state.count);
+  for (let i = 0; i < state.count; i++) {
+    const p = makeParticle();
+    p.px = p.x; p.py = p.y;
+    particles[i] = p;
+  }
+}
+
+function reseed(seed) {
+  state.seed = seed >>> 0;
+  noise = new SimplexNoise(makeRNG(state.seed));
+}
+
+/* ---------- Simulation step ---------- */
+function step() {
+  // Trail fade: paint a translucent background rectangle.
+  const fadeAmt = state.fade / 100;
+  if (fadeAmt > 0) {
+    const bg = PALETTES[state.palette].bg;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = hexToRGBA(bg, fadeAmt);
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.globalCompositeOperation = state.blend;
+  ctx.lineWidth = state.width * 0.5;
+  ctx.lineCap = "round";
+
+  const invScale = 1 / state.scale;
+  const spd = state.speed * 0.1;
+  const curlAmt = (state.curl / 100) * Math.PI * 2;
+  const zoff = state.zoff;
+
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    const n = noise.noise2D(p.x * invScale, p.y * invScale + zoff);
+    let angle = n * Math.PI * 2 + curlAmt;
+
+    let vx = Math.cos(angle) * spd;
+    let vy = Math.sin(angle) * spd;
+
+    // Mouse interaction
+    if (state.mouseMode !== "none" && mouse.active) {
+      const dx = mouse.x - p.x, dy = mouse.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < 240 * 240 && d2 > 1) {
+        const d = Math.sqrt(d2);
+        const force = (1 - d / 240) * spd * 2.5;
+        const sign = state.mouseMode === "attract" ? 1 : -1;
+        vx += (dx / d) * force * sign;
+        vy += (dy / d) * force * sign;
+      }
+    }
+
+    p.px = p.x; p.py = p.y;
+    p.x += vx; p.y += vy;
+    p.life--;
+
+    // Respawn when off-screen or expired
+    if (p.life <= 0 || p.x < -10 || p.x > W + 10 || p.y < -10 || p.y > H + 10) {
+      const np = makeParticle();
+      p.x = np.x; p.y = np.y; p.px = np.x; p.py = np.y;
+      p.life = np.life; p.color = np.color;
+      continue;
+    }
+
+    ctx.strokeStyle = p.color;
+    ctx.beginPath();
+    ctx.moveTo(p.px, p.py);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+
+  state.zoff += 0.0006 * state.speed * 0.4;
+}
+
+let rafId = null;
+function loop() {
+  if (!state.paused) step();
+  rafId = requestAnimationFrame(loop);
+}
+
+/* ---------- Helpers ---------- */
+function hexToRGBA(hex, a) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ============================================================
+   UI wiring
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+function bindSlider(id, key, fmt) {
+  const el = $(id);
+  const valEl = $(id + "Val");
+  el.value = state[key];
+  valEl.textContent = fmt ? fmt(state[key]) : state[key];
+  el.addEventListener("input", () => {
+    const v = Number(el.value);
+    state[key] = v;
+    valEl.textContent = fmt ? fmt(v) : v;
+    if (key === "count") rebuildParticles();
+  });
+}
+
+bindSlider("count", "count");
+bindSlider("scale", "scale");
+bindSlider("speed", "speed");
+bindSlider("curl", "curl", (v) => v + "%");
+bindSlider("width", "width", (v) => (v * 0.5).toFixed(1) + "px");
+bindSlider("fade", "fade", (v) => v + "%");
+
+// Palette swatches
+const palettesEl = $("palettes");
+PALETTES.forEach((pal, i) => {
+  const sw = document.createElement("div");
+  sw.className = "swatch" + (i === state.palette ? " active" : "");
+  sw.title = pal.name;
+  sw.style.background = `linear-gradient(135deg, ${pal.colors[0]}, ${pal.colors[1]}, ${pal.colors[2]})`;
+  sw.addEventListener("click", () => {
+    state.palette = i;
+    document.querySelectorAll(".swatch").forEach((s) => s.classList.remove("active"));
+    sw.classList.add("active");
+    paintBackground();
+    rebuildParticles();
+  });
+  palettesEl.appendChild(sw);
+});
+
+// Blend segmented control
+$("blend").querySelectorAll("button").forEach((b) => {
+  b.addEventListener("click", () => {
+    $("blend").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    state.blend = b.dataset.blend;
+  });
+});
+
+// Mouse mode
+$("mouseMode").querySelectorAll("button").forEach((b) => {
+  b.addEventListener("click", () => {
+    $("mouseMode").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    state.mouseMode = b.dataset.mode;
+  });
+});
+
+// Buttons
+$("pause").addEventListener("click", () => {
+  state.paused = !state.paused;
+  $("pause").textContent = state.paused ? "Resume" : "Pause";
+});
+$("clear").addEventListener("click", () => { paintBackground(); });
+$("randomize").addEventListener("click", randomize);
+$("save").addEventListener("click", savePNG);
+$("fullscreen").addEventListener("click", toggleFullscreen);
+
+// Panel collapse
+$("collapse").addEventListener("click", () => {
+  $("panel").classList.add("collapsed");
+  $("fab").classList.add("show");
+});
+$("fab").addEventListener("click", () => {
+  $("panel").classList.remove("collapsed");
+  $("fab").classList.remove("show");
+});
+
+/* ---------- Actions ---------- */
+function randomize() {
+  reseed((Math.random() * 1e9) | 0);
+  state.palette = (Math.random() * PALETTES.length) | 0;
+  state.scale = 60 + Math.random() * 400;
+  state.curl = Math.random() * 100;
+  state.speed = 12 + Math.random() * 35;
+  // reflect in UI
+  $("scale").value = state.scale; $("scaleVal").textContent = Math.round(state.scale);
+  $("curl").value = state.curl; $("curlVal").textContent = Math.round(state.curl) + "%";
+  $("speed").value = state.speed; $("speedVal").textContent = Math.round(state.speed);
+  document.querySelectorAll(".swatch").forEach((s, i) =>
+    s.classList.toggle("active", i === state.palette));
+  paintBackground();
+  rebuildParticles();
+  showToast("New composition seeded");
+}
+
+function savePNG() {
+  const link = document.createElement("a");
+  link.download = `simplex-noise-art-${state.seed}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+  showToast("Saved PNG");
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.();
+  } else {
+    document.exitFullscreen?.();
+  }
+}
+
+/* ---------- Toast & hint ---------- */
+let toastTimer = null;
+function showToast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+let hintTimer = null;
+function showHint(msg) {
+  const h = $("hint");
+  h.textContent = msg;
+  h.classList.add("show");
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => h.classList.remove("show"), 4000);
+}
+
+/* ---------- Pointer ---------- */
+function setMouse(e) {
+  const t = e.touches ? e.touches[0] : e;
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+  mouse.active = true;
+}
+canvas.addEventListener("mousemove", setMouse);
+canvas.addEventListener("mouseleave", () => { mouse.active = false; });
+canvas.addEventListener("touchmove", (e) => { setMouse(e); }, { passive: true });
+canvas.addEventListener("touchstart", (e) => { setMouse(e); }, { passive: true });
+canvas.addEventListener("touchend", () => { mouse.active = false; });
+
+/* ---------- Keyboard shortcuts ---------- */
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  switch (e.key.toLowerCase()) {
+    case " ": e.preventDefault(); $("pause").click(); break;
+    case "r": randomize(); break;
+    case "s": savePNG(); break;
+    case "c": paintBackground(); break;
+    case "f": toggleFullscreen(); break;
+    case "h":
+      $("panel").classList.toggle("collapsed");
+      $("fab").classList.toggle("show");
+      break;
+  }
+});
+
+/* ---------- Boot ---------- */
+window.addEventListener("resize", resize);
+resize();
+rebuildParticles();
+loop();
+setTimeout(() => showHint("Drag to interact · R randomize · S save · Space pause · H hide panel · F fullscreen"), 700);
+</script>
+</body>
+</html>
